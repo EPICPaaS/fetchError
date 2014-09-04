@@ -61,7 +61,7 @@ func init() {
 	AppConfigPath = path.Join(AppPath, "fetch_record")
 	OutPath = path.Join(AppPath, "out")
 	//fmt.Println(AppConfigPath)
-	FetchRecords = readContent()
+	FetchRecords = readContent() //导入日志分析记录文件
 }
 
 func WriteConfigFile(fileContent string) {
@@ -105,17 +105,21 @@ func getFetchRecord(ip, appID, moduleName, port string) *FetchRecord {
 	return &FetchRecord{ip, appID, moduleName, port, "0000/00/00 00:00:00"}
 }
 
+/**
+* 更新日志分析记录信息
+ */
 func insertOrUpdate(r FetchRecord) {
 	hasOne := false
 	for i, rr := range FetchRecords {
-		//update
+		//update 更新日志记录最新分析时间
 		if rr.IP == r.IP && rr.AppID == r.AppID && rr.ModuleName == r.ModuleName && rr.Port == r.Port {
 			if rr.LastTime < r.LastTime {
-				var frs []FetchRecord
+				/*var frs []FetchRecord
 				frs = FetchRecords[0:i]
 				frs = append(frs, r)
 				frs = append(frs, FetchRecords[i+1:]...)
-				FetchRecords = frs
+				FetchRecords = frs*/
+				FetchRecords[i] = r
 			}
 			return
 
@@ -127,6 +131,9 @@ func insertOrUpdate(r FetchRecord) {
 	}
 }
 
+/**
+*  将日志分析记录文件写回到磁盘
+ */
 func writeFetchRecords() {
 	outputFile, err := os.OpenFile(AppConfigPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, os.ModePerm)
 	CheckErr(err)
@@ -141,6 +148,9 @@ func writeFetchRecords() {
 	w.Flush()
 }
 
+/**
+* 生成抓取成功的日志信息的数据库数据文件
+ */
 func writeLogRecord(l LogRecord) {
 	if l.LogLevel == "ERROR" || strings.Count(l.LogContent, "Exception") > 0 || strings.Count(l.LogContent, ".OutOfMemoryError") > 0 {
 		//line := strings.Join([]string{l.IP, l.AppID, l.ModuleName, l.Port, l.LogLevel, l.LogTime, l.LogClass, l.LogLineNumber, l.LogContent}, ",")
@@ -190,7 +200,7 @@ func handleFile(filePath string) *FetchRecord {
 		newFilePath = filePath + ".fetch"
 		os.Rename(filePath, newFilePath)
 	}
-	r1, r2 := GetFetchRecord(newFilePath)
+	r1, r2 := GetFetchRecord(newFilePath) //获取当前所分析分日志文件最后分析信息（r1）和本身信息r2（不含时间信息）
 	readLines(newFilePath, r1, r2)
 
 	if !strings.HasSuffix(baseName, ".log") {
@@ -200,6 +210,10 @@ func handleFile(filePath string) *FetchRecord {
 	return r2
 }
 
+/**
+* 扫描日志文件，并根据日志文件记录文件（fetch_record）中的记录去重
+* r1为fetch_record中的记录信息，r2是当前信息
+ */
 func readLines(path string, r1, r2 *FetchRecord) error {
 	file, err := os.Open(path)
 	//log.Println(path)
@@ -272,7 +286,7 @@ func readLines(path string, r1, r2 *FetchRecord) error {
 	}
 	if lastLog != nil {
 		//处理上一条
-		r2.LastTime = lastLog.LogTime
+		r2.LastTime = lastLog.LogTime //更新日志文件最后分析日期
 		writeLogRecord(*lastLog)
 	}
 	//log.Println(i, j)
@@ -308,13 +322,16 @@ func readLine(line string) (logLevel, logTime, logClass, logLineNumber, logConte
 	}
 	*/
 	if len(fields) > 3 {
+		//取出日志级别如ERROR 、DEGUG 等
 		f := fields[0]
 		logLevel = f[1 : len(f)-1]
 		logLevel = strings.TrimRight(logLevel, " ")
 
+		//取出时间
 		f = fields[1]
 		logTime = f[1 : len(f)-1]
 
+		//取异常类型及错误行号
 		f = fields[2]
 		ff := f[1 : len(f)-1]
 		ffs := strings.Split(ff, ":")
@@ -368,7 +385,7 @@ func main() {
 	BufWriter = bufio.NewWriterSize(outputFile, BufSize)
 
 	all := GetFilelist(ddir)
-	var allUpdateRecord []FetchRecord
+	var allUpdateRecord []FetchRecord //记录已分析日志
 	for _, fp := range all {
 		fr := handleFile(fp)
 		allUpdateRecord = append(allUpdateRecord, *fr)
