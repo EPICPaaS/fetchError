@@ -276,7 +276,7 @@ func readLines(path string, r1, r2 *FetchRecord) error {
 		}
 		//j = j + 1
 		if strings.HasPrefix(line, "[ERROR") || strings.HasPrefix(line, "[WARN") || strings.HasPrefix(line, "[INFO") || strings.HasPrefix(line, "[DEBUG") ||
-			strings.HasPrefix(line, "[error") || strings.HasPrefix(line, "[warn") || strings.HasPrefix(line, "[notice") || strings.HasPrefix(line, "[debug") { //为满足redis日志
+			strings.HasPrefix(line, "[warn") || strings.HasPrefix(line, "[notice") || strings.HasPrefix(line, "[debug") { //为满足redis日志
 			if lastLog == nil {
 				logRecord.LogLevel, logRecord.LogTime, logRecord.LogClass, logRecord.LogLineNumber, logRecord.LogContent = readLine(line)
 				if r1 != nil && logRecord.LogTime > r1.LastTime {
@@ -393,8 +393,8 @@ func readLine(line string) (logLevel, logTime, logClass, logLineNumber, logConte
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	//ddir := "/home/paas/paas/logs"
-	ddir := "/home/ublxd/paas/logs"
+	ddir := "/home/paas/paas/logs"
+	//ddir := "/home/ublxd/paas/logs"
 
 	cpuprofile := flag.String("cpuprofile", "", "the cpu profile ")
 	dir := flag.String("dir", "", "the paas logs dir")
