@@ -211,7 +211,19 @@ func infrastructureGetFR(filePath string) (*FetchRecord, *FetchRecord) {
 			(mduleName == "msgchannel" && strings.Contains(v, "MSGCHANNEL_SERVERS")) ||
 			(mduleName == "zookeeper" && strings.Contains(v, "ZK_SERVERS")) {
 
-			port = getInfrastructurePort(v)
+			e := strings.SplitN(v, "=", 2)
+			if len(e) > 1 {
+				vs := strings.Split(e[1], ",")
+				for _, m := range vs {
+					if strings.Contains(v, LOCAL_IP) {
+						f := strings.Split(m, ":")
+						if len(f) > 1 {
+							port = f[1]
+						}
+						break
+					}
+				}
+			}
 			break
 		}
 	}
@@ -219,21 +231,6 @@ func infrastructureGetFR(filePath string) (*FetchRecord, *FetchRecord) {
 		fmt.Println("环境变量中读取不到", mduleName, "端口信息")
 	}
 	return getFetchRecord(LOCAL_IP, "infrastructure", mduleName, port), &FetchRecord{LOCAL_IP, "infrastructure", mduleName, port, "0000/00/00 00:00:00"}
-}
-
-//获取env 中 infrastructure的端口信息
-func getInfrastructurePort(v string) (post string) {
-	e := strings.SplitN(v, "=", 2)
-	if len(e) > 1 {
-		vs := strings.Split(e[1], ",")
-		for _, m := range vs {
-			if strings.Contains(v, LOCAL_IP) {
-				f := strings.Split(m, ":")
-				return f[1]
-			}
-		}
-	}
-	return "0"
 }
 
 func handleFile(filePath string) *FetchRecord {
@@ -279,7 +276,7 @@ func readLines(path string, r1, r2 *FetchRecord) error {
 		}
 		//j = j + 1
 		if strings.HasPrefix(line, "[ERROR") || strings.HasPrefix(line, "[WARN") || strings.HasPrefix(line, "[INFO") || strings.HasPrefix(line, "[DEBUG") ||
-			strings.HasPrefix(line, "[warn") || strings.HasPrefix(line, "[notice") || strings.HasPrefix(line, "[debug") { //为满足redis日志
+			strings.HasPrefix(line, "[error") || strings.HasPrefix(line, "[warn") || strings.HasPrefix(line, "[notice") || strings.HasPrefix(line, "[debug") { //为满足redis日志
 			if lastLog == nil {
 				logRecord.LogLevel, logRecord.LogTime, logRecord.LogClass, logRecord.LogLineNumber, logRecord.LogContent = readLine(line)
 				if r1 != nil && logRecord.LogTime > r1.LastTime {
