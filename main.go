@@ -114,11 +114,6 @@ func insertOrUpdate(r FetchRecord) {
 		//update 更新日志记录最新分析时间
 		if rr.IP == r.IP && rr.AppID == r.AppID && rr.ModuleName == r.ModuleName && rr.Port == r.Port {
 			if rr.LastTime < r.LastTime {
-				/*var frs []FetchRecord
-				frs = FetchRecords[0:i]
-				frs = append(frs, r)
-				frs = append(frs, FetchRecords[i+1:]...)
-				FetchRecords = frs*/
 				FetchRecords[i] = r
 			}
 			return
@@ -152,7 +147,9 @@ func writeFetchRecords() {
 * 生成抓取成功的日志信息的数据库数据文件
  */
 func writeLogRecord(l LogRecord) {
-	if l.LogLevel == "ERROR" || strings.Count(l.LogContent, "Exception") > 0 || strings.Count(l.LogContent, ".OutOfMemoryError") > 0 {
+
+	//redis错误时的错误级别warning
+	if l.LogLevel == "ERROR" || strings.Count(l.LogContent, "Exception") > 0 || strings.Count(l.LogContent, ".OutOfMemoryError") > 0 || (l.ModuleName == "redis" && l.LogLevel == "warning") {
 		//line := strings.Join([]string{l.IP, l.AppID, l.ModuleName, l.Port, l.LogLevel, l.LogTime, l.LogClass, l.LogLineNumber, l.LogContent}, ",")
 		c := l.LogContent + "\n"
 		//c = strings.Replace(c, "\t", "  ", -1)
@@ -191,6 +188,52 @@ func GetFetchRecord(filePath string) (*FetchRecord, *FetchRecord) {
 	port := ns[i+1:]
 	return getFetchRecord(LOCAL_IP, appID, moduleName, port), &FetchRecord{LOCAL_IP, appID, moduleName, port, "0000/00/00 00:00:00"}
 
+}
+
+/**
+* 获取基础设置的FetchRecord名片
+ */
+func infrastructureGetFR(filePath string) (*FetchRecord, *FetchRecord) {
+
+	flevels := strings.Split(filePath, "/")
+	size := len(flevels)
+	if size < 3 {
+		return nil, nil
+	}
+
+	mduleName := flevels[size-2]
+	port := "0"
+	env := os.Environ()
+	for _, v := range env {
+		if (mduleName == "nginx" && strings.Contains(v, "NGINX_SERVERS")) ||
+			(mduleName == "rabbitmq" && strings.Contains(v, "RABBITMQ_SERVERS")) ||
+			(mduleName == "mariadb" && strings.Contains(v, "DB_SERVERS")) ||
+			(mduleName == "msgchannel" && strings.Contains(v, "MSGCHANNEL_SERVERS")) ||
+			(mduleName == "zookeeper" && strings.Contains(v, "ZK_SERVERS")) {
+
+			port = getInfrastructurePort(v)
+			break
+		}
+	}
+	if port == "0" {
+		fmt.Println("环境变量中读取不到", mduleName, "端口信息")
+	}
+	return getFetchRecord(LOCAL_IP, "infrastructure", mduleName, port), &FetchRecord{LOCAL_IP, "infrastructure", mduleName, port, "0000/00/00 00:00:00"}
+}
+
+//获取env 中 infrastructure的端口信息
+func getInfrastructurePort(v string) (post string) {
+	e := strings.SplitN(v, "=", 2)
+	if len(e) > 1 {
+		vs := strings.Split(e[1], ",")
+		for _, m := range vs {
+			if strings.Contains(v, LOCAL_IP) {
+				f := strings.Split(m, ":")
+				return f[1]
+			}
+		}
+	}
+	return "0"
 }
 
 func handleFile(filePath string) *FetchRecord {
@@ -235,8 +278,8 @@ func readLines(path string, r1, r2 *FetchRecord) error {
 			continue
 		}
 		//j = j + 1
-
-		if strings.HasPrefix(line, "[ERROR") || strings.HasPrefix(line, "[WARN") || strings.HasPrefix(line, "[INFO") || strings.HasPrefix(line, "[DEBUG") {
+		if strings.HasPrefix(line, "[ERROR") || strings.HasPrefix(line, "[WARN") || strings.HasPrefix(line, "[INFO") || strings.HasPrefix(line, "[DEBUG") ||
+			strings.HasPrefix(line, "[warn") || strings.HasPrefix(line, "[notice") || strings.HasPrefix(line, "[debug") { //为满足redis日志
 			if lastLog == nil {
 				logRecord.LogLevel, logRecord.LogTime, logRecord.LogClass, logRecord.LogLineNumber, logRecord.LogContent = readLine(line)
 				if r1 != nil && logRecord.LogTime > r1.LastTime {
@@ -255,7 +298,6 @@ func readLines(path string, r1, r2 *FetchRecord) error {
 
 				//处理当前这条
 				logLevel, logTime, logClass, logLineNumber, logContent := readLine(line)
-
 				if r1 != nil && logTime > r1.LastTime {
 					logRecord := LogRecord{r2.IP, r2.AppID, r2.ModuleName, r2.Port, logLevel, logTime, logClass, logLineNumber, logContent, false, "E", path}
 					lastLog = &logRecord
@@ -354,11 +396,12 @@ func readLine(line string) (logLevel, logTime, logClass, logLineNumber, logConte
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	ddir := "/home/paas/paas/logs"
-	//ddir := "/home/yourchanges/paas_home_dev/logs"
+	//ddir := "/home/paas/paas/logs"
+	ddir := "/home/ublxd/paas/logs"
 
 	cpuprofile := flag.String("cpuprofile", "", "the cpu profile ")
 	dir := flag.String("dir", "", "the paas logs dir")
+
 	flag.Parse()
 
 	if *cpuprofile != "" {
@@ -387,8 +430,21 @@ func main() {
 	all := GetFilelist(ddir)
 	var allUpdateRecord []FetchRecord //记录已分析日志
 	for _, fp := range all {
-		fr := handleFile(fp)
-		allUpdateRecord = append(allUpdateRecord, *fr)
+
+		var fr *FetchRecord
+		if strings.Contains(fp, "nginx/") { //nginx 日志抓取
+			fr = nginxHandleFile(fp)
+		} else if strings.Contains(fp, "rabbitmq/") { //rabbitmq日志抓取
+			fr = rabbimqHandleFile(fp)
+		} else if strings.Contains(fp, "mariadb/") { //抓取marribd日志
+			fr = marridbHandleFile(fp)
+		} else {
+			fr = handleFile(fp)
+		}
+		if fr != nil {
+			allUpdateRecord = append(allUpdateRecord, *fr)
+		}
+
 	}
 
 	//最终刷新

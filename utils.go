@@ -62,14 +62,39 @@ func GetFilelist(path1 string) []string {
 		if f.IsDir() {
 			return nil
 		}
+
+		//读取链接目录下文件
+		if (f.Mode()&os.ModeSymlink) > 0 && strings.Contains(path2, "infrastructure/") { //只遍历infrastructure下的软连接目录/排除syslog链接
+			linkPath, err := filepath.EvalSymlinks(path2)
+			if err != nil {
+				return err
+			}
+			tmpall := GetFilelist(linkPath)
+			all = append(all, tmpall[0:]...)
+			return nil
+		}
+
 		baseName := path.Base(path2)
-		if strings.HasPrefix(baseName, "tmp.") || strings.Contains(baseName, ".fetch") || strings.Contains(path2, "infrastructure/") {
+		if strings.HasPrefix(baseName, "tmp.") || strings.Contains(baseName, ".fetch") {
 
 		} else if strings.Contains(baseName, ".log") {
 			all = append(all, path2)
 		}
 		return nil
 	})
-
 	return all
+}
+
+//删除string类型slice中的空格
+func RemoveSliceSpaceStr(s []string) []string {
+	for i, v := range s {
+		v = strings.TrimSpace(v)
+		if len(v) == 0 {
+			var tmpSlice []string
+			tmpSlice = s[0:i]
+			tmpSlice = append(tmpSlice, s[i+1:]...)
+			s = tmpSlice
+		}
+	}
+	return s
 }
